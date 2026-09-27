@@ -15,7 +15,7 @@ import requests
 import joblib
 import os
 
-MODEL_URL = "https://huggingface.co/Ash-1185/energy-forecasting-model/blob/main/random_forest_model.pkl"
+MODEL_URL = "https://huggingface.co/Ash-1185/energy-forecasting-model/resolve/main/random_forest_model.pkl?download=true"
 MODEL_PATH = "random_forest_model.pkl"
 
 @st.cache_resource
