@@ -14,18 +14,68 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 import requests
 import joblib
 import os
+import hashlib
+import tempfile
 
 MODEL_URL = "https://huggingface.co/Ash-1185/energy-forecasting-model/resolve/main/random_forest_model.pkl?download=true"
 MODEL_PATH = "random_forest_model.pkl"
+MODEL_SIZE = 1283853439
+MODEL_SHA256 = "f8d7c1ab0bda7d387cf3a9af5309ed415326ebed3e9f5d67ddedab20bf4ddace"
+
+
+def _has_valid_model(path):
+    if not os.path.isfile(path) or os.path.getsize(path) != MODEL_SIZE:
+        return False
+
+    digest = hashlib.sha256()
+    with open(path, "rb") as model_file:
+        for chunk in iter(lambda: model_file.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+
+    return digest.hexdigest() == MODEL_SHA256
 
 @st.cache_resource
 def load_model():
-    if not os.path.exists(MODEL_PATH):
-        response = requests.get(MODEL_URL)
-        response.raise_for_status()
+    if not _has_valid_model(MODEL_PATH):
+        digest = hashlib.sha256()
+        downloaded_bytes = 0
+        temp_path = None
 
-        with open(MODEL_PATH, "wb") as f:
-            f.write(response.content)
+        try:
+            with requests.get(
+                MODEL_URL,
+                stream=True,
+                timeout=(15, 300)
+            ) as response:
+                response.raise_for_status()
+
+                with tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    dir=os.path.dirname(os.path.abspath(MODEL_PATH)),
+                    prefix=".random_forest_model-",
+                    suffix=".tmp",
+                    delete=False
+                ) as model_file:
+                    temp_path = model_file.name
+                    for chunk in response.iter_content(chunk_size=8 * 1024 * 1024):
+                        if chunk:
+                            model_file.write(chunk)
+                            digest.update(chunk)
+                            downloaded_bytes += len(chunk)
+
+            if downloaded_bytes != MODEL_SIZE:
+                raise RuntimeError(
+                    f"Downloaded model is {downloaded_bytes} bytes; "
+                    f"expected {MODEL_SIZE}."
+                )
+
+            if digest.hexdigest() != MODEL_SHA256:
+                raise RuntimeError("Downloaded model failed its SHA-256 check.")
+
+            os.replace(temp_path, MODEL_PATH)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
 
     return joblib.load(MODEL_PATH)
 
